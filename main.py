@@ -18,7 +18,7 @@ PRODUCTS = {
     "toolbox": {
         "label": "INSIDEX Toolbox",
         "description": "Windows Optimization Suite",
-        "expiry": 1,  # วัน
+        "expiry": 1,
         "emoji": "🛠️",
     }
 }
@@ -38,7 +38,6 @@ def save_cooldowns(data):
         json.dump(data, f)
 
 def check_cooldown(user_id: str):
-    """คืน None ถ้าผ่าน cooldown แล้ว, คืน datetime ที่จะหมด cooldown ถ้ายังไม่ผ่าน"""
     data = load_cooldowns()
     if user_id in data:
         last_gen = datetime.fromisoformat(data[user_id])
@@ -54,7 +53,6 @@ def set_cooldown(user_id: str):
 
 # ── KeyAuth Seller API ────────────────────────────────────────────────────
 def keyauth_create_key(expiry_days: int) -> dict:
-    """สร้าง key ใหม่ผ่าน KeyAuth Seller API"""
     try:
         r = requests.get(
             "https://keyauth.win/api/seller/",
@@ -84,8 +82,7 @@ tree = bot.tree
 
 # ── Dropdown ─────────────────────────────────────────────────────────────
 class ProductSelect(discord.ui.Select):
-    def __init__(self, user: discord.Member):
-        self.user = user
+    def __init__(self):
         options = [
             discord.SelectOption(
                 label=v["label"],
@@ -99,15 +96,21 @@ class ProductSelect(discord.ui.Select):
             placeholder="เลือกโปรแกรมที่ต้องการ Gen Key...",
             min_values=1,
             max_values=1,
-            options=options
+            options=options,
+            custom_id="genkey_select"
         )
 
     async def callback(self, interaction: discord.Interaction):
-        # ตรวจว่าเป็นคนกดเอง
-        if interaction.user.id != self.user.id:
-            await interaction.response.send_message(
-                "❌ คุณไม่ใช่เจ้าของ command นี้", ephemeral=True
+        # เช็ค role
+        role_ids = [r.id for r in interaction.user.roles]
+        if ALLOWED_ROLE_ID not in role_ids:
+            embed = discord.Embed(
+                title="❌ ไม่มีสิทธิ์",
+                description="คุณไม่มี role ที่จำเป็นสำหรับ Gen Key",
+                color=0xef4444
             )
+            embed.set_footer(text="INSIDEX Toolbox • ซื้อสินค้าก่อนเพื่อรับ role")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         product_key = self.values[0]
@@ -118,27 +121,21 @@ class ProductSelect(discord.ui.Select):
         cd = check_cooldown(user_id)
         if cd:
             remaining = cd - datetime.utcnow()
-            hours     = int(remaining.total_seconds() // 3600)
-            minutes   = int((remaining.total_seconds() % 3600) // 60)
-
+            hours   = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
             embed = discord.Embed(
                 title="⏳ Cooldown Active",
-                description=f"คุณได้ Gen Key ไปแล้วในช่วง 24 ชั่วโมงที่ผ่านมา",
+                description="คุณได้ Gen Key ไปแล้วในช่วง 24 ชั่วโมงที่ผ่านมา",
                 color=0xf59e0b
             )
-            embed.add_field(
-                name="เหลือเวลา",
-                value=f"`{hours}h {minutes}m`",
-                inline=False
-            )
+            embed.add_field(name="เหลือเวลา", value=f"`{hours}h {minutes}m`", inline=False)
             embed.set_footer(text="INSIDEX Toolbox • Cooldown 24 Hours")
-            await interaction.response.edit_message(embed=embed, view=None)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Defer ก่อน เพราะ API อาจช้า
-        await interaction.response.defer(ephemeral=False)
+        await interaction.response.defer(ephemeral=True)
 
-        # สร้าง key จาก KeyAuth
+        # สร้าง key
         result = keyauth_create_key(product["expiry"])
 
         if not result.get("success"):
@@ -148,23 +145,21 @@ class ProductSelect(discord.ui.Select):
                 color=0xef4444
             )
             embed.set_footer(text="INSIDEX Toolbox • ติดต่อ Admin ถ้ายังเกิดปัญหา")
-            await interaction.edit_original_response(embed=embed, view=None)
+            await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
-        # ดึง key จาก response
         key = result.get("key", "")
         if not key and "keys" in result:
             key = result["keys"][0] if result["keys"] else ""
 
-        # set cooldown
         set_cooldown(user_id)
 
-        # DM ส่ง key ให้ลูกค้า
         expiry_date = (datetime.utcnow() + timedelta(days=product["expiry"])).strftime("%d/%m/%Y %H:%M UTC")
 
+        # DM embed
         dm_embed = discord.Embed(
             title="🔑 INSIDEX License Key",
-            description=f"ขอบคุณที่ใช้บริการ **INSIDEX**! นี่คือ key ของคุณ",
+            description="ขอบคุณที่ใช้บริการ **INSIDEX**! นี่คือ key ของคุณ",
             color=0x8b5cf6
         )
         dm_embed.add_field(name="โปรแกรม", value=f"{product['emoji']} {product['label']}", inline=True)
@@ -189,11 +184,10 @@ class ProductSelect(discord.ui.Select):
         except discord.Forbidden:
             dm_success = False
 
-        # แก้ message ใน channel
         if dm_success:
             success_embed = discord.Embed(
                 title="✅ Gen Key สำเร็จ!",
-                description=f"{interaction.user.mention} ส่ง key ให้ทาง DM แล้ว 📩",
+                description="ส่ง key ให้ทาง DM แล้ว 📩 เช็ค Direct Message ได้เลย",
                 color=0x22c55e
             )
             success_embed.add_field(name="โปรแกรม", value=f"{product['emoji']} {product['label']}", inline=True)
@@ -203,7 +197,7 @@ class ProductSelect(discord.ui.Select):
         else:
             success_embed = discord.Embed(
                 title="⚠️ Gen Key สำเร็จ แต่ส่ง DM ไม่ได้",
-                description=f"{interaction.user.mention} กรุณาเปิด DM แล้วลองใหม่ หรือติดต่อ Admin",
+                description="กรุณาเปิด DM แล้วติดต่อ Admin",
                 color=0xf59e0b
             )
             success_embed.add_field(
@@ -213,70 +207,43 @@ class ProductSelect(discord.ui.Select):
             )
             success_embed.set_footer(text="INSIDEX Toolbox • Gen Key System")
 
-        await interaction.edit_original_response(embed=success_embed, view=None)
+        await interaction.followup.send(embed=success_embed, ephemeral=True)
 
 
-class ProductView(discord.ui.View):
-    def __init__(self, user: discord.Member):
-        super().__init__(timeout=60)
-        self.add_item(ProductSelect(user))
-
-    async def on_timeout(self):
-        for item in self.children:
-            item.disabled = True
+# ── Persistent View ───────────────────────────────────────────────────────
+class GenKeyView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)  # timeout=None = ถาวร
+        self.add_item(ProductSelect())
 
 
-# ── Slash Command ─────────────────────────────────────────────────────────
-@tree.command(name="genkey", description="Gen License Key สำหรับ INSIDEX Toolbox")
+# ── Slash Commands ────────────────────────────────────────────────────────
+@tree.command(name="genkey", description="[Admin] สร้าง embed Gen Key ถาวรใน channel นี้")
 async def genkey(interaction: discord.Interaction):
-    # เช็ค role
-    role_ids = [r.id for r in interaction.user.roles]
-    if ALLOWED_ROLE_ID not in role_ids:
-        embed = discord.Embed(
-            title="❌ ไม่มีสิทธิ์",
-            description="คุณไม่มี role ที่จำเป็นสำหรับ Gen Key",
-            color=0xef4444
-        )
-        embed.set_footer(text="INSIDEX Toolbox • ซื้อสินค้าก่อนเพื่อรับ role")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Admin only", ephemeral=True)
         return
 
-    # เช็ค cooldown ก่อนโชว์ dropdown
-    cd = check_cooldown(str(interaction.user.id))
-    if cd:
-        remaining = cd - datetime.utcnow()
-        hours   = int(remaining.total_seconds() // 3600)
-        minutes = int((remaining.total_seconds() % 3600) // 60)
-        embed = discord.Embed(
-            title="⏳ Cooldown Active",
-            description="คุณได้ Gen Key ไปแล้วในช่วง 24 ชั่วโมงที่ผ่านมา",
-            color=0xf59e0b
-        )
-        embed.add_field(name="เหลือเวลา", value=f"`{hours}h {minutes}m`", inline=False)
-        embed.set_footer(text="INSIDEX Toolbox • Cooldown 24 Hours")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-
-    # โชว์ dropdown
     embed = discord.Embed(
         title="🔑 INSIDEX Gen Key",
-        description="เลือกโปรแกรมที่ต้องการ Gen License Key",
+        description=(
+            "กด **เลือกโปรแกรม** ด้านล่างเพื่อ Gen License Key\n\n"
+            "📦 **สินค้าที่รองรับ**\n"
+            "🛠️ INSIDEX Toolbox — Windows Optimization Suite\n\n"
+            "⏱️ **Cooldown:** 24 ชั่วโมง / ครั้ง\n"
+            "📩 Key จะถูกส่งให้ทาง **Direct Message**"
+        ),
         color=0x8b5cf6
     )
-    embed.add_field(name="⏱️ Cooldown", value="`24 ชั่วโมง / ครั้ง`", inline=True)
-    embed.add_field(name="📦 สินค้า",   value="`INSIDEX Toolbox`",     inline=True)
     embed.set_footer(text="INSIDEX Toolbox • Gen Key System")
     embed.timestamp = discord.utils.utcnow()
 
-    view = ProductView(interaction.user)
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    await interaction.response.send_message(embed=embed, view=GenKeyView())
 
 
-# ── Admin command: reset cooldown ─────────────────────────────────────────
 @tree.command(name="resetcd", description="[Admin] Reset cooldown ของ user")
 @app_commands.describe(user="User ที่ต้องการ reset cooldown")
 async def resetcd(interaction: discord.Interaction, user: discord.Member):
-    # เช็คว่าเป็น admin
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ Admin only", ephemeral=True)
         return
@@ -298,6 +265,8 @@ async def resetcd(interaction: discord.Interaction, user: discord.Member):
 # ── Events ────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
+    # register persistent view ก่อน sync
+    bot.add_view(GenKeyView())
     await tree.sync()
     print(f"[INSIDEX] Bot online: {bot.user}")
     print(f"[INSIDEX] Slash commands synced")
