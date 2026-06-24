@@ -61,7 +61,7 @@ def keyauth_create_key(expiry_days: int) -> dict:
                 "type":      "add",
                 "format":    "JSON",
                 "expiry":    expiry_days,
-                "mask":      "TOOLBOXX-********",  # ← แก้ตรงนี้
+                "mask":      "TOOLBOXX-********",
                 "level":     "1",
                 "amount":    "1",
                 "owner":     KEYAUTH_OWNER_ID,
@@ -101,6 +101,12 @@ class ProductSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        # reset dropdown ก่อนทำอะไรเสมอ
+        try:
+            await interaction.message.edit(view=GenKeyView())
+        except:
+            pass
+
         # เช็ค role
         role_ids = [r.id for r in interaction.user.roles]
         if ALLOWED_ROLE_ID not in role_ids:
@@ -205,7 +211,7 @@ class ProductSelect(discord.ui.Select):
                 value=f"```\n{key}\n```",
                 inline=False
             )
-            success_embed.set_footer(text="InsideX free • Gen Key System")
+            success_embed.set_footer(text="INSIDEX Toolbox • Gen Key System")
 
         await interaction.followup.send(embed=success_embed, ephemeral=True)
 
@@ -213,7 +219,7 @@ class ProductSelect(discord.ui.Select):
 # ── Persistent View ───────────────────────────────────────────────────────
 class GenKeyView(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None)  # timeout=None = ถาวร
+        super().__init__(timeout=None)
         self.add_item(ProductSelect())
 
 
@@ -265,7 +271,6 @@ async def resetcd(interaction: discord.Interaction, user: discord.Member):
 # ── Events ────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
-    # register persistent view ก่อน sync
     bot.add_view(GenKeyView())
     await tree.sync()
     print(f"[INSIDEX] Bot online : {bot.user}")
