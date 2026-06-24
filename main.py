@@ -81,127 +81,126 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
 # ── Dropdown ─────────────────────────────────────────────────────────────
-async def callback(self, interaction: discord.Interaction):
-    # เช็ค role
-    role_ids = [r.id for r in interaction.user.roles]
-    if ALLOWED_ROLE_ID not in role_ids:
-        embed = discord.Embed(
-            title="❌ ไม่มีสิทธิ์",
-            description="คุณไม่มี role ที่จำเป็นสำหรับ Gen Key",
-            color=0xef4444
+class ProductSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(
+                label=v["label"],
+                value=k,
+                description=v["description"],
+                emoji=v["emoji"]
+            )
+            for k, v in PRODUCTS.items()
+        ]
+        super().__init__(
+            placeholder="เลือกโปรแกรมที่ต้องการ Gen Key...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="genkey_select"
         )
-        embed.set_footer(text="INSIDEX Toolbox • ซื้อสินค้าก่อนเพื่อรับ role")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        try:
-            await interaction.message.edit(view=GenKeyView())
-        except:
-            pass
-        return
 
-    product_key = self.values[0]
-    product     = PRODUCTS[product_key]
-    user_id     = str(interaction.user.id)
+    async def callback(self, interaction: discord.Interaction):
+        # เช็ค role
+        role_ids = [r.id for r in interaction.user.roles]
+        if ALLOWED_ROLE_ID not in role_ids:
+            embed = discord.Embed(
+                title="❌ ไม่มีสิทธิ์",
+                description="คุณไม่มี role ที่จำเป็นสำหรับ Gen Key",
+                color=0xef4444
+            )
+            embed.set_footer(text="INSIDEX Toolbox • ซื้อสินค้าก่อนเพื่อรับ role")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
 
-    # เช็ค cooldown
-    cd = check_cooldown(user_id)
-    if cd:
-        remaining = cd - datetime.utcnow()
-        hours   = int(remaining.total_seconds() // 3600)
-        minutes = int((remaining.total_seconds() % 3600) // 60)
-        embed = discord.Embed(
-            title="⏳ Cooldown Active",
-            description="คุณได้ Gen Key ไปแล้วในช่วง 24 ชั่วโมงที่ผ่านมา",
-            color=0xf59e0b
+        product_key = self.values[0]
+        product     = PRODUCTS[product_key]
+        user_id     = str(interaction.user.id)
+
+        # เช็ค cooldown
+        cd = check_cooldown(user_id)
+        if cd:
+            remaining = cd - datetime.utcnow()
+            hours   = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
+            embed = discord.Embed(
+                title="⏳ Cooldown Active",
+                description="คุณได้ Gen Key ไปแล้วในช่วง 24 ชั่วโมงที่ผ่านมา",
+                color=0xf59e0b
+            )
+            embed.add_field(name="เหลือเวลา", value=f"`{hours}h {minutes}m`", inline=False)
+            embed.set_footer(text="INSIDEX Toolbox • Cooldown 24 Hours")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # respond + reset dropdown ในคราวเดียว
+        await interaction.response.edit_message(view=GenKeyView())
+
+        # สร้าง key
+        result = keyauth_create_key(product["expiry"])
+
+        if not result.get("success"):
+            embed = discord.Embed(
+                title="❌ Gen Key ล้มเหลว",
+                description=f"```{result.get('message', 'Unknown error')}```",
+                color=0xef4444
+            )
+            embed.set_footer(text="INSIDEX Toolbox • ติดต่อ Admin ถ้ายังเกิดปัญหา")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        key = result.get("key", "")
+        if not key and "keys" in result:
+            key = result["keys"][0] if result["keys"] else ""
+
+        set_cooldown(user_id)
+
+        expiry_date = (datetime.utcnow() + timedelta(days=product["expiry"])).strftime("%d/%m/%Y %H:%M UTC")
+
+        # DM embed
+        dm_embed = discord.Embed(
+            title="🔑 INSIDEX License Key",
+            description="ขอบคุณที่ใช้บริการ **INSIDEX**! นี่คือ key ของคุณ",
+            color=0x8b5cf6
         )
-        embed.add_field(name="เหลือเวลา", value=f"`{hours}h {minutes}m`", inline=False)
-        embed.set_footer(text="INSIDEX Toolbox • Cooldown 24 Hours")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        try:
-            await interaction.message.edit(view=GenKeyView())
-        except:
-            pass
-        return
-
-    # defer ก่อน แล้วค่อย reset dropdown
-    await interaction.response.defer(ephemeral=True)
-    try:
-        await interaction.message.edit(view=GenKeyView())
-    except:
-        pass
-
-    # สร้าง key
-    result = keyauth_create_key(product["expiry"])
-
-    if not result.get("success"):
-        embed = discord.Embed(
-            title="❌ Gen Key ล้มเหลว",
-            description=f"```{result.get('message', 'Unknown error')}```",
-            color=0xef4444
-        )
-        embed.set_footer(text="INSIDEX Toolbox • ติดต่อ Admin ถ้ายังเกิดปัญหา")
-        await interaction.followup.send(embed=embed, ephemeral=True)
-        return
-
-    key = result.get("key", "")
-    if not key and "keys" in result:
-        key = result["keys"][0] if result["keys"] else ""
-
-    set_cooldown(user_id)
-
-    expiry_date = (datetime.utcnow() + timedelta(days=product["expiry"])).strftime("%d/%m/%Y %H:%M UTC")
-
-    # DM embed
-    dm_embed = discord.Embed(
-        title="🔑 INSIDEX License Key",
-        description="ขอบคุณที่ใช้บริการ **INSIDEX**! นี่คือ key ของคุณ",
-        color=0x8b5cf6
-    )
-    dm_embed.add_field(name="โปรแกรม", value=f"{product['emoji']} {product['label']}", inline=True)
-    dm_embed.add_field(name="อายุ",    value=f"`{product['expiry']} วัน`",              inline=True)
-    dm_embed.add_field(name="หมดอายุ", value=f"`{expiry_date}`",                        inline=True)
-    dm_embed.add_field(
-        name="🔐 License Key",
-        value=f"```\n{key}\n```",
-        inline=False
-    )
-    dm_embed.add_field(
-        name="📌 วิธีใช้",
-        value="เปิด **INSIDEX Toolbox** แล้วกรอก key ในช่อง License Key",
-        inline=False
-    )
-    dm_embed.set_footer(text="INSIDEX Toolbox • อย่าแชร์ key นี้ให้ใคร")
-    dm_embed.timestamp = discord.utils.utcnow()
-
-    try:
-        await interaction.user.send(embed=dm_embed)
-        dm_success = True
-    except discord.Forbidden:
-        dm_success = False
-
-    if dm_success:
-        success_embed = discord.Embed(
-            title="✅ Gen Key สำเร็จ!",
-            description="ส่ง key ให้ทาง DM แล้ว 📩 เช็ค Direct Message ได้เลย",
-            color=0x22c55e
-        )
-        success_embed.add_field(name="โปรแกรม", value=f"{product['emoji']} {product['label']}", inline=True)
-        success_embed.add_field(name="Cooldown", value="`24 ชั่วโมง`", inline=True)
-        success_embed.set_footer(text="INSIDEX Toolbox • Gen Key System")
-        success_embed.timestamp = discord.utils.utcnow()
-    else:
-        success_embed = discord.Embed(
-            title="⚠️ Gen Key สำเร็จ แต่ส่ง DM ไม่ได้",
-            description="กรุณาเปิด DM แล้วติดต่อ Admin",
-            color=0xf59e0b
-        )
-        success_embed.add_field(
-            name="🔐 Key ของคุณ",
-            value=f"```\n{key}\n```",
+        dm_embed.add_field(name="โปรแกรม", value=f"{product['emoji']} {product['label']}", inline=True)
+        dm_embed.add_field(name="อายุ",    value=f"`{product['expiry']} วัน`",              inline=True)
+        dm_embed.add_field(name="หมดอายุ", value=f"`{expiry_date}`",                        inline=True)
+        dm_embed.add_field(name="🔐 License Key", value=f"```\n{key}\n```", inline=False)
+        dm_embed.add_field(
+            name="📌 วิธีใช้",
+            value="เปิด **INSIDEX Toolbox** แล้วกรอก key ในช่อง License Key",
             inline=False
         )
-        success_embed.set_footer(text="INSIDEX Toolbox • Gen Key System")
+        dm_embed.set_footer(text="INSIDEX Toolbox • อย่าแชร์ key นี้ให้ใคร")
+        dm_embed.timestamp = discord.utils.utcnow()
 
-    await interaction.followup.send(embed=success_embed, ephemeral=True)
+        try:
+            await interaction.user.send(embed=dm_embed)
+            dm_success = True
+        except discord.Forbidden:
+            dm_success = False
+
+        if dm_success:
+            success_embed = discord.Embed(
+                title="✅ Gen Key สำเร็จ!",
+                description="ส่ง key ให้ทาง DM แล้ว 📩 เช็ค Direct Message ได้เลย",
+                color=0x22c55e
+            )
+            success_embed.add_field(name="โปรแกรม", value=f"{product['emoji']} {product['label']}", inline=True)
+            success_embed.add_field(name="Cooldown", value="`24 ชั่วโมง`", inline=True)
+            success_embed.set_footer(text="INSIDEX Toolbox • Gen Key System")
+            success_embed.timestamp = discord.utils.utcnow()
+        else:
+            success_embed = discord.Embed(
+                title="⚠️ Gen Key สำเร็จ แต่ส่ง DM ไม่ได้",
+                description="กรุณาเปิด DM แล้วติดต่อ Admin",
+                color=0xf59e0b
+            )
+            success_embed.add_field(name="🔐 Key ของคุณ", value=f"```\n{key}\n```", inline=False)
+            success_embed.set_footer(text="INSIDEX Toolbox • Gen Key System")
+
+        await interaction.followup.send(embed=success_embed, ephemeral=True)
 
 
 # ── Persistent View ───────────────────────────────────────────────────────
