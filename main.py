@@ -61,7 +61,7 @@ def keyauth_create_key(expiry_days: int) -> dict:
                 "type":      "add",
                 "format":    "JSON",
                 "expiry":    expiry_days,
-                "mask":      "XXXXXX-XXXXXX-XXXXXX-XXXXXX",
+                "mask":      "TOOLBOXX-********",  # ← แก้ตรงนี้
                 "level":     "1",
                 "amount":    "1",
                 "owner":     KEYAUTH_OWNER_ID,
