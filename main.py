@@ -205,7 +205,7 @@ class ProductSelect(discord.ui.Select):
                 value=f"```\n{key}\n```",
                 inline=False
             )
-            success_embed.set_footer(text="INSIDEX Toolbox • Gen Key System")
+            success_embed.set_footer(text="InsideX free • Gen Key System")
 
         await interaction.followup.send(embed=success_embed, ephemeral=True)
 
@@ -230,7 +230,7 @@ async def genkey(interaction: discord.Interaction):
             "กด **เลือกโปรแกรม** ด้านล่างเพื่อ Gen License Key\n\n"
             "📦 **สินค้าที่รองรับ**\n"
             "🛠️ INSIDEX Toolbox — Windows Optimization Suite\n\n"
-            "⏱️ **Cooldown:** 24 ชั่วโมง / ครั้ง\n"
+            "⏱️ **Cooldown :** 24 ชั่วโมง / ครั้ง\n"
             "📩 Key จะถูกส่งให้ทาง **Direct Message**"
         ),
         color=0x8b5cf6
@@ -268,7 +268,7 @@ async def on_ready():
     # register persistent view ก่อน sync
     bot.add_view(GenKeyView())
     await tree.sync()
-    print(f"[INSIDEX] Bot online: {bot.user}")
+    print(f"[INSIDEX] Bot online : {bot.user}")
     print(f"[INSIDEX] Slash commands synced")
 
 
