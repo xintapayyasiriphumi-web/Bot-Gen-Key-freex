@@ -12,7 +12,9 @@ KEYAUTH_SELLER_KEY = os.environ.get("KEYAUTH_SELLER_KEY", "5d715834aa685ad04184d
 KEYAUTH_APP_NAME   = "InsidexToolbox"
 KEYAUTH_OWNER_ID   = "h73NBoWgLW"
 ALLOWED_ROLE_ID    = 1400021532620886056
-COOLDOWN_FILE      = "cooldowns.json"
+LOG_CHANNEL_ID     = 1520305331316461668   # ← ห้อง log
+COOLDOWN_FILE      = "/app/data/cooldowns.json"
+os.makedirs("/app/data", exist_ok=True)   # สร้าง folder ถ้ายังไม่มี
 
 PRODUCTS = {
     "toolbox": {
@@ -72,6 +74,37 @@ def keyauth_create_key(expiry_days: int) -> dict:
         return r.json()
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+# ── Log to channel ────────────────────────────────────────────────────────
+async def send_log(bot: commands.Bot, user: discord.Member, key: str, product: dict, success: bool, reason: str = ""):
+    channel = bot.get_channel(LOG_CHANNEL_ID)
+    if not channel:
+        return
+
+    if success:
+        embed = discord.Embed(
+            title="🔑 Key Generated",
+            color=0x22c55e,
+        )
+        embed.add_field(name="👤 User",     value=f"{user.mention}\n`{user.name}` (`{user.id}`)", inline=True)
+        embed.add_field(name="📦 Product",  value=f"{product['emoji']} {product['label']}",        inline=True)
+        embed.add_field(name="⏳ Expiry",   value=f"`{product['expiry']} วัน`",                    inline=True)
+        embed.add_field(name="🔐 Key",      value=f"```{key}```",                                  inline=False)
+        expiry_date = (datetime.utcnow() + timedelta(days=product["expiry"])).strftime("%d/%m/%Y %H:%M UTC")
+        embed.add_field(name="📅 หมดอายุ", value=f"`{expiry_date}`",                              inline=True)
+        embed.set_footer(text=f"INSIDEX • Gen Key Log")
+    else:
+        embed = discord.Embed(
+            title="❌ Gen Key Failed",
+            color=0xef4444,
+        )
+        embed.add_field(name="👤 User",   value=f"{user.mention}\n`{user.name}` (`{user.id}`)", inline=True)
+        embed.add_field(name="📦 Product", value=f"{product['emoji']} {product['label']}",       inline=True)
+        embed.add_field(name="⚠️ เหตุผล", value=f"```{reason}```",                               inline=False)
+        embed.set_footer(text="INSIDEX • Gen Key Log")
+
+    embed.timestamp = discord.utils.utcnow()
+    await channel.send(embed=embed)
 
 # ── Bot setup ─────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
@@ -140,13 +173,16 @@ class ProductSelect(discord.ui.Select):
         result = keyauth_create_key(product["expiry"])
 
         if not result.get("success"):
+            error_msg = result.get("message", "Unknown error")
             embed = discord.Embed(
                 title="❌ Gen Key ล้มเหลว",
-                description=f"```{result.get('message', 'Unknown error')}```",
+                description=f"```{error_msg}```",
                 color=0xef4444
             )
             embed.set_footer(text="INSIDEX Toolbox • ติดต่อ Admin ถ้ายังเกิดปัญหา")
             await interaction.followup.send(embed=embed, ephemeral=True)
+            # Log failure
+            await send_log(bot, interaction.user, "", product, success=False, reason=error_msg)
             return
 
         key = result.get("key", "")
@@ -180,6 +216,9 @@ class ProductSelect(discord.ui.Select):
             dm_success = True
         except discord.Forbidden:
             dm_success = False
+
+        # Log ทุก gen key ที่สำเร็จ (ไม่ว่า DM จะส่งได้หรือไม่)
+        await send_log(bot, interaction.user, key, product, success=True)
 
         if dm_success:
             success_embed = discord.Embed(
@@ -255,6 +294,30 @@ async def resetcd(interaction: discord.Interaction, user: discord.Member):
         )
 
 
+@tree.command(name="keylog", description="[Admin] ดูจำนวน key ที่ gen ไปแล้วทั้งหมด")
+async def keylog(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Admin only", ephemeral=True)
+        return
+
+    data = load_cooldowns()
+    total = len(data)
+
+    embed = discord.Embed(
+        title="📊 Key Stats",
+        color=0x8b5cf6
+    )
+    embed.add_field(name="🔑 Total Keys Generated", value=f"`{total}` keys", inline=False)
+    embed.add_field(
+        name="📋 ดู Log ละเอียด",
+        value=f"<#{LOG_CHANNEL_ID}>",
+        inline=False
+    )
+    embed.set_footer(text="INSIDEX Toolbox • Key Stats")
+    embed.timestamp = discord.utils.utcnow()
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 # ── Events ────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
@@ -262,6 +325,7 @@ async def on_ready():
     await tree.sync()
     print(f"[INSIDEX] Bot online : {bot.user}")
     print(f"[INSIDEX] Slash commands synced")
+    print(f"[INSIDEX] Log channel ID : {LOG_CHANNEL_ID}")
 
 
 bot.run(DISCORD_TOKEN)
